@@ -3,7 +3,7 @@
     api = (script.dataset.api || "").replace(/\/$/, ""),
     key = script.dataset.key;
   if (!api || !key) return;
-  var storageKey = "appscope_visitor",
+  var storageKey = "OvaLuk_visitor",
     visitor = localStorage.getItem(storageKey);
   if (!visitor) {
     visitor = crypto.randomUUID
@@ -11,10 +11,10 @@
       : Date.now().toString(36) + Math.random().toString(36).slice(2);
     localStorage.setItem(storageKey, visitor);
   }
-  var session = sessionStorage.getItem("appscope_session");
+  var session = sessionStorage.getItem("OvaLuk_session");
   if (!session) {
     session = Date.now().toString(36) + Math.random().toString(36).slice(2);
-    sessionStorage.setItem("appscope_session", session);
+    sessionStorage.setItem("OvaLuk_session", session);
   }
   function track(event, properties) {
     fetch(api + "/api/events", {
@@ -25,17 +25,17 @@
         event: event,
         visitor_id: visitor,
         session_id: session,
-        user_id: w.AppScopeUserId || null,
+        user_id: w.OvaLukUserId || null,
         page_url: location.href,
         referrer: d.referrer || null,
         properties: properties || {},
       }),
     }).catch(function () {});
   }
-  w.AppScope = {
+  w.OvaLuk = {
     track: track,
     identify: function (id) {
-      w.AppScopeUserId = String(id);
+      w.OvaLukUserId = String(id);
       track("user_identified");
     },
   };

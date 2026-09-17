@@ -2,12 +2,12 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_DATABASE: appscope
-      MYSQL_USER: appscope
+      MYSQL_DATABASE: OvaLuk
+      MYSQL_USER: OvaLuk
       MYSQL_PASSWORD: change-me
       MYSQL_ROOT_PASSWORD: change-root-password
     volumes:
-      - appscope_mysql:/var/lib/mysql
+      - OvaLuk_mysql:/var/lib/mysql
       - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
@@ -23,4 +23,4 @@ services:
       mysql:
         condition: service_healthy
 volumes:
-  appscope_mysql:
+  OvaLuk_mysql:

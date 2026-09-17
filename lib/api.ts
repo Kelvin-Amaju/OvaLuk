@@ -1,5 +1,5 @@
-export const API_URL=(process.env.NEXT_PUBLIC_API_URL||"http://localhost/appscope/backend/public").replace(/\/$/,"");
-const TOKEN_KEY="appscope_admin_token";
+export const API_URL=(process.env.NEXT_PUBLIC_API_URL||"http://localhost/OvaLuk/backend/public").replace(/\/$/,"");
+const TOKEN_KEY="OvaLuk_admin_token";
 export const auth={get:()=>typeof window==="undefined"?null:sessionStorage.getItem(TOKEN_KEY),set:(v:string)=>sessionStorage.setItem(TOKEN_KEY,v),clear:()=>sessionStorage.removeItem(TOKEN_KEY)};
 export async function api<T=unknown>(path:string,init:RequestInit={}):Promise<T>{
  const token=auth.get(); const response=await fetch(API_URL+path,{...init,headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`} :{}),...(init.headers||{})},cache:"no-store"});

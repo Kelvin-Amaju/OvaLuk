@@ -8,7 +8,7 @@ final class Totp {
         $out = ''; for ($i=0;$i<$length;$i++) $out .= self::ALPHABET[random_int(0,31)]; return $out;
     }
     public static function uri(string $secret, string $email): string {
-        $issuer = 'AppScope';
+        $issuer = 'OvaLuk';
         return 'otpauth://totp/' . rawurlencode($issuer . ':' . $email) . '?secret=' . $secret . '&issuer=' . rawurlencode($issuer) . '&digits=6&period=30';
     }
     public static function verify(string $secret, string $code, int $window = 1): bool {

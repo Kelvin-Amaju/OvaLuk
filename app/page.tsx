@@ -126,7 +126,7 @@ export default function Home() {
       <div className="auth-page">
         <div className="auth-card">
           <RefreshCw className="spin" />
-          <p>Loading AppScope…</p>
+          <p>Loading OvaLuk…</p>
         </div>
       </div>
     );
@@ -214,7 +214,7 @@ function Login({
           <span className="brand-mark">
             <Command size={19} />
           </span>
-          <strong>AppScope</strong>
+          <strong>OvaLuk</strong>
         </div>
         <h1>{temp ? "Verify your identity" : "Administrator sign in"}</h1>
         <p>
@@ -327,7 +327,7 @@ function DashboardApp({
           <span className="brand-mark">
             <Command size={18} />
           </span>
-          <span>AppScope</span>
+          <span>OvaLuk</span>
           <button className="mobile-close" onClick={() => setMobile(false)}>
             <X size={20} />
           </button>

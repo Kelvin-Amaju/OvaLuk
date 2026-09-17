@@ -1,6 +1,6 @@
-# AppScope Admin
+# OvaLuk Admin
 
-AppScope is a single-administrator application monitoring dashboard with a React/Vinext frontend and a framework-free Core PHP + MySQL API.
+OvaLuk is a single-administrator application monitoring dashboard with a React/Vinext frontend and a framework-free Core PHP + MySQL API.
 
 ## Included
 
