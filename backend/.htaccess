@@ -1,0 +1,5 @@
+Options -Indexes
+RewriteEngine On
+RewriteRule ^(config|src|database|bin)/ - [F,L]
+RewriteRule (^|/)\.env|\.htaccess - [F,L]
+

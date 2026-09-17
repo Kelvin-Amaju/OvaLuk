@@ -1,0 +1,42 @@
+<?php
+declare(strict_types=1);
+namespace App;
+
+use PDO;
+
+final class Api {
+    public static function apps(): array {
+        $sql="SELECT a.*,COUNT(DISTINCT IF(e.occurred_at>=DATE_SUB(NOW(),INTERVAL 30 DAY),e.visitor_id,NULL)) visitors,COUNT(DISTINCT IF(e.occurred_at>=DATE_SUB(NOW(),INTERVAL 30 DAY),e.user_id,NULL)) users,COUNT(IF(e.occurred_at>=DATE_SUB(NOW(),INTERVAL 30 DAY),1,NULL)) events,COALESCE((SELECT SUM(CASE WHEN p.status='paid' THEN p.amount_minor WHEN p.status='refunded' THEN -p.amount_minor ELSE 0 END) FROM payments p WHERE p.application_id=a.id AND p.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)),0) revenue FROM applications a LEFT JOIN events e ON e.application_id=a.id GROUP BY a.id ORDER BY a.created_at DESC";
+        return array_map([self::class,'appShape'],Database::connection()->query($sql)->fetchAll());
+    }
+    public static function createApp(array $b): array {
+        $name=trim((string)($b['name']??''));$url=trim((string)($b['url']??''));$env=(string)($b['environment']??'Production');
+        if($name===''||!filter_var($url,FILTER_VALIDATE_URL)||!in_array($env,['Production','Staging','Development'],true))Http::json(['success'=>false,'error'=>'Valid name, URL and environment are required'],422);
+        $key='ask_'.Crypto::randomToken(24);$public=Crypto::randomToken(16);$pdo=Database::connection();$stmt=$pdo->prepare('INSERT INTO applications(public_id,name,url,environment,ingestion_key_hash) VALUES(?,?,?,?,?)');$stmt->execute([$public,$name,$url,$env,Crypto::hash($key)]);
+        self::audit('application.created','application',(string)$pdo->lastInsertId());
+        $app=['id'=>$public,'name'=>$name,'url'=>$url,'environment'=>$env,'status'=>'healthy','accent'=>'#3979ff','visitors'=>0,'users'=>0,'events'=>0,'revenue'=>0];$app['ingestion_key']=$key;return $app;
+    }
+    public static function updateApp(string $public,array $b): array {
+        $allowed=[];$params=[];foreach(['name','url','environment','status','accent'] as $key)if(array_key_exists($key,$b)){$allowed[]="$key=?";$params[]=$b[$key];}
+        if(!$allowed)Http::json(['success'=>false,'error'=>'No changes supplied'],422);$params[]=$public;Database::connection()->prepare('UPDATE applications SET '.implode(',',$allowed).' WHERE public_id=?')->execute($params);self::audit('application.updated','application',$public);return self::findApp($public);
+    }
+    public static function deleteApp(string $public): void {Database::connection()->prepare('DELETE FROM applications WHERE public_id=?')->execute([$public]);self::audit('application.deleted','application',$public);}
+    public static function rotateKey(string $public): string {$key='ask_'.Crypto::randomToken(24);Database::connection()->prepare('UPDATE applications SET ingestion_key_hash=? WHERE public_id=?')->execute([Crypto::hash($key),$public]);self::audit('application.key_rotated','application',$public);return $key;}
+    public static function dashboard(int $days): array {
+        $days=max(1,min(90,$days));$pdo=Database::connection();
+        $apps=self::apps();$totals=['visitors'=>0,'users'=>0,'events'=>0,'revenue'=>0];foreach($apps as $a)foreach($totals as $k=>$v)$totals[$k]+=(int)$a[$k];
+        $stmt=$pdo->prepare("SELECT DATE(occurred_at) day,COUNT(DISTINCT visitor_id) visitors,COUNT(DISTINCT NULLIF(user_id,'')) users FROM events WHERE occurred_at>=DATE_SUB(CURDATE(),INTERVAL ? DAY) GROUP BY DATE(occurred_at) ORDER BY day");$stmt->execute([$days]);$traffic=$stmt->fetchAll();
+        $live=(int)$pdo->query("SELECT COUNT(DISTINCT visitor_id) FROM events WHERE occurred_at>=DATE_SUB(NOW(),INTERVAL 5 MINUTE)")->fetchColumn();
+        $views=(int)$pdo->query("SELECT COUNT(*) FROM events WHERE event_name='page_view' AND occurred_at>=DATE_SUB(NOW(),INTERVAL 30 MINUTE)")->fetchColumn();$events=(int)$pdo->query("SELECT COUNT(*) FROM events WHERE occurred_at>=DATE_SUB(NOW(),INTERVAL 30 MINUTE)")->fetchColumn();
+        return compact('totals','apps','traffic')+['live'=>['active'=>$live,'page_views'=>$views,'events'=>$events]];
+    }
+    public static function engagement(int $days): array {$stmt=Database::connection()->prepare('SELECT e.event_name,a.name application,COUNT(*) count,ROUND(COUNT(*)*100/(SELECT GREATEST(COUNT(*),1) FROM events WHERE occurred_at>=DATE_SUB(NOW(),INTERVAL ? DAY)),1) percentage FROM events e JOIN applications a ON a.id=e.application_id WHERE e.occurred_at>=DATE_SUB(NOW(),INTERVAL ? DAY) GROUP BY e.event_name,a.id ORDER BY count DESC LIMIT 20');$stmt->execute([$days,$days]);return $stmt->fetchAll();}
+    public static function payments(): array {$pdo=Database::connection();$summary=$pdo->query("SELECT COALESCE(SUM(CASE WHEN status='paid' THEN amount_minor ELSE 0 END),0) gross_volume,COUNT(DISTINCT CASE WHEN status='paid' THEN customer_email END) customers,ROUND(100*SUM(status='paid')/GREATEST(COUNT(*),1),1) success_rate,COALESCE(SUM(CASE WHEN status='pending' THEN amount_minor ELSE 0 END),0) outstanding FROM payments WHERE created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)")->fetch();$rows=$pdo->query('SELECT p.*,a.name application FROM payments p JOIN applications a ON a.id=p.application_id ORDER BY p.created_at DESC LIMIT 100')->fetchAll();foreach($rows as &$r)unset($r['raw_payload']);return ['summary'=>$summary,'transactions'=>$rows,'connections'=>self::connections()];}
+    public static function connectPayment(array $b): array {$app=self::findApp((string)($b['application_id']??''),true);$provider=(string)($b['provider']??'');if(!in_array($provider,['stripe','paystack','flutterwave'],true))Http::json(['success'=>false,'error'=>'Unsupported provider'],422);$credentials=(string)($b['api_key']??'');$secret=(string)($b['webhook_secret']??'');if($credentials===''||$secret==='')Http::json(['success'=>false,'error'=>'API key and webhook secret are required'],422);$stmt=Database::connection()->prepare('INSERT INTO payment_connections(application_id,provider,display_name,credentials_encrypted,webhook_secret_encrypted) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),credentials_encrypted=VALUES(credentials_encrypted),webhook_secret_encrypted=VALUES(webhook_secret_encrypted),active=1');$stmt->execute([$app['db_id'],$provider,trim((string)($b['display_name']??ucfirst($provider))),Crypto::encrypt($credentials),Crypto::encrypt($secret)]);self::audit('payment.connected','application',$app['id']);return ['provider'=>$provider,'webhook_url'=>$GLOBALS['config']['app_url'].'/api/webhooks/'.$provider.'/'.$app['id']];}
+    public static function connections(): array {return Database::connection()->query('SELECT pc.id,a.public_id application_id,a.name application,pc.provider,pc.display_name,pc.active,pc.created_at FROM payment_connections pc JOIN applications a ON a.id=pc.application_id ORDER BY pc.created_at DESC')->fetchAll();}
+    public static function alerts(): array {return Database::connection()->query('SELECT al.*,a.name application FROM alerts al LEFT JOIN applications a ON a.id=al.application_id WHERE resolved_at IS NULL ORDER BY FIELD(severity,"critical","warning","info"),created_at DESC LIMIT 100')->fetchAll();}
+    public static function profile(array $admin): array {return ['name'=>$admin['name'],'email'=>$admin['email'],'mfa_enabled'=>(bool)$admin['mfa_enabled']];}
+    private static function findApp(string $public,bool $raw=false): array {$stmt=Database::connection()->prepare('SELECT *,id db_id,public_id id FROM applications WHERE public_id=? LIMIT 1');$stmt->execute([$public]);$app=$stmt->fetch();if(!$app)Http::json(['success'=>false,'error'=>'Application not found'],404);return $raw?$app:self::appShape($app);}
+    private static function appShape(array $a): array {return ['id'=>$a['public_id']??$a['id'],'name'=>$a['name'],'slug'=>preg_replace('#^https?://#','',$a['url']),'url'=>$a['url'],'environment'=>$a['environment'],'status'=>$a['status'],'accent'=>$a['accent'],'initials'=>strtoupper(substr(preg_replace('/[^A-Za-z0-9]/','',$a['name']),0,2)),'visitors'=>(int)($a['visitors']??0),'users'=>(int)($a['users']??0),'events'=>(int)($a['events']??0),'revenue'=>(int)($a['revenue']??0),'change'=>0];}
+    private static function audit(string $action,?string $type=null,?string $id=null,array $meta=[]):void {Database::connection()->prepare('INSERT INTO audit_logs(admin_id,action,entity_type,entity_id,metadata,ip) VALUES(1,?,?,?,?,?)')->execute([$action,$type,$id,json_encode($meta),Http::ip()]);}
+}
